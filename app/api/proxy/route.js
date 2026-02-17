@@ -1,6 +1,26 @@
 import { NextResponse } from 'next/server';
 
+// Simple in-memory rate limit (Map acts as a cache for this serverless instance)
+const ratelimit = new Map();
+
 export async function GET(request) {
+  // --- SECURITY: Rate Limiting ---
+  // We handle this here to avoid "middleware.js" build warnings in newer Next.js versions
+  const ip = request.headers.get('x-forwarded-for') || '127.0.0.1';
+  const count = ratelimit.get(ip) || 0;
+
+  if (count > 20) { // Max 20 requests per minute
+    return NextResponse.json({ error: 'Rate limit exceeded' }, { status: 429 });
+  }
+
+  // Increment count and set simple cleanup (resetting count after 60s)
+  ratelimit.set(ip, count + 1);
+  setTimeout(() => {
+    const current = ratelimit.get(ip);
+    if (current) ratelimit.set(ip, Math.max(0, current - 1));
+  }, 60000);
+
+  // --- PROXY LOGIC ---
   const { searchParams } = new URL(request.url);
   const address = searchParams.get('address');
   const endpoint = searchParams.get('endpoint'); // e.g., 'xp', 'badges', 'mystery-box'
